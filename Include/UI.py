@@ -7,15 +7,17 @@
 # [Revision History]
 # >> 2022.04.20 - First Commit
 # -------------------------------------------------------------------------------------------------------------------- #
+import platform
 import pandas as pd
 from typing import Union
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIntValidator
-from PyQt5.QtWidgets import QMainWindow, QWidget
+from PyQt5.QtGui import QIntValidator, QIcon
+from PyQt5.QtWidgets import QMainWindow, QWidget, QMessageBox, QFileDialog
 from PyQt5.QtWidgets import QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QPushButton, QRadioButton, QLabel
-from PyQt5.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView
+from PyQt5.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView, QTabWidget
 from PyQt5.QtWidgets import QVBoxLayout, QHBoxLayout, QGroupBox, QSizePolicy
-from Calculator import MortgageLoanCalculator, RepaymentType
+from Calculator import MortgageLoanCalculator, RepaymentType, RoundType
+from Common import money_string_to_readable_text
 
 
 class MortgageLoanCalculatorWindow(QMainWindow):
@@ -25,6 +27,8 @@ class MortgageLoanCalculatorWindow(QMainWindow):
         super().__init__()
         self._calculator = MortgageLoanCalculator()
         self._editPrincipal = QLineEdit()  # 대출 원금
+        self._last_valid_text: str = ''
+        self._lbl_readable = QLabel()
         self._spinInterest = QDoubleSpinBox()  # 대출 금리 (퍼센트)
         self._spinPeriod = QSpinBox()  # 대출 기간
         self._radioPeriodYear = QRadioButton('년')
@@ -33,12 +37,18 @@ class MortgageLoanCalculatorWindow(QMainWindow):
         self._radioGracePeriodYear = QRadioButton('년')
         self._radioGracePeriodMonth = QRadioButton('개월')
         self._comboRepaymentType = QComboBox()  # 이자 상환 방식
+        self._radioFloatRoundOff = QRadioButton('반올림')
+        self._radioFloatRoundUp = QRadioButton('올림')
+        self._radioFloatRoundDown = QRadioButton('버림')
         self._btnCalculate = QPushButton('계산')
+        self._btnSaveCsv = QPushButton('저장 (CSV)')
+        self._tabWidget = QTabWidget()
         self._tableResult = QTableWidget()
         self.initControl()
         self.initLayout()
         self.setWindowTitle('주택담보대출 계산기')
-        self.resize(600, 600)
+        self.setWindowIcon(QIcon("./Resource/application.ico"))
+        self.resize(600, 800)
 
     def initLayout(self):
         central = QWidget()
@@ -46,26 +56,30 @@ class MortgageLoanCalculatorWindow(QMainWindow):
 
         vbox = QVBoxLayout(central)
         vbox.setContentsMargins(4, 4, 4, 4)
-        vbox.setSpacing(4)
+        vbox.setSpacing(6)
 
-        grbox = QGroupBox('파라미터')
+        grbox = QGroupBox('조건')
         grbox.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         vbox_gr = QVBoxLayout(grbox)
         vbox_gr.setContentsMargins(4, 6, 4, 4)
-        vbox_gr.setSpacing(4)
+        vbox_gr.setSpacing(6)
         wgt = QWidget()
         hbox = QHBoxLayout(wgt)
         hbox.setContentsMargins(0, 0, 0, 0)
-        hbox.setSpacing(4)
+        hbox.setSpacing(6)
         lbl = QLabel('대출금액')
         lbl.setFixedWidth(110)
         hbox.addWidget(lbl)
         hbox.addWidget(self._editPrincipal)
+        lbl = QLabel('원')
+        lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(lbl)
         vbox_gr.addWidget(wgt)
+        vbox_gr.addWidget(self._lbl_readable)
         wgt = QWidget()
         hbox = QHBoxLayout(wgt)
         hbox.setContentsMargins(0, 0, 0, 0)
-        hbox.setSpacing(4)
+        hbox.setSpacing(6)
         lbl = QLabel('연이자율')
         lbl.setFixedWidth(110)
         hbox.addWidget(lbl)
@@ -77,7 +91,7 @@ class MortgageLoanCalculatorWindow(QMainWindow):
         wgt = QWidget()
         hbox = QHBoxLayout(wgt)
         hbox.setContentsMargins(0, 0, 0, 0)
-        hbox.setSpacing(4)
+        hbox.setSpacing(6)
         lbl = QLabel('대출 기간')
         lbl.setFixedWidth(110)
         hbox.addWidget(lbl)
@@ -90,7 +104,7 @@ class MortgageLoanCalculatorWindow(QMainWindow):
         wgt = QWidget()
         hbox = QHBoxLayout(wgt)
         hbox.setContentsMargins(0, 0, 0, 0)
-        hbox.setSpacing(4)
+        hbox.setSpacing(6)
         lbl = QLabel('이자 거치 기간')
         lbl.setFixedWidth(110)
         hbox.addWidget(lbl)
@@ -103,21 +117,46 @@ class MortgageLoanCalculatorWindow(QMainWindow):
         wgt = QWidget()
         hbox = QHBoxLayout(wgt)
         hbox.setContentsMargins(0, 0, 0, 0)
-        hbox.setSpacing(4)
+        hbox.setSpacing(6)
         lbl = QLabel('상환 방식')
         lbl.setFixedWidth(110)
         hbox.addWidget(lbl)
         hbox.addWidget(self._comboRepaymentType)
         vbox_gr.addWidget(wgt)
+        wgt = QWidget()
+        hbox = QHBoxLayout(wgt)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(6)
+        lbl = QLabel('소수점')
+        lbl.setFixedWidth(110)
+        hbox.addWidget(lbl)
+        hbox.addWidget(self._radioFloatRoundOff)
+        self._radioFloatRoundOff.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._radioFloatRoundUp)
+        self._radioFloatRoundUp.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(self._radioFloatRoundDown)
+        self._radioFloatRoundDown.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.MinimumExpanding)
+        hbox.addWidget(QWidget())
+        vbox_gr.addWidget(wgt)
         vbox.addWidget(grbox)
 
-        vbox.addWidget(self._btnCalculate)
-        vbox.addWidget(self._tableResult)
+        wgt = QWidget()
+        hbox = QHBoxLayout(wgt)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(6)
+        hbox.addWidget(self._btnCalculate)
+        hbox.addWidget(self._btnSaveCsv)
+        hbox.addWidget(QWidget())
+        vbox.addWidget(wgt)
+
+        vbox.addWidget(self._tabWidget)
 
     def initControl(self):
-        self._editPrincipal.setValidator(QIntValidator())  # 숫자만 입력할 수 있도록 validator 설정
+        # self._editPrincipal.setValidator(QIntValidator())  # 숫자만 입력할 수 있도록 validator 설정
         # self._editPrincipal.setAlignment(Qt.AlignRight)
+        self._editPrincipal.textChanged.connect(self.onEditPrincipalTextChanged)
         self._editPrincipal.setText(str(self._calculator.principal))
+        self._lbl_readable.setAlignment(Qt.AlignRight)
         self._spinInterest.setRange(0, 100)
         self._spinInterest.setDecimals(2)
         self._spinInterest.setValue(self._calculator.interest_rate_percentage)
@@ -134,59 +173,119 @@ class MortgageLoanCalculatorWindow(QMainWindow):
         self._radioGracePeriodYear.clicked.connect(self.onClickRadioGracePeriod)
         self._radioGracePeriodMonth.clicked.connect(self.onClickRadioGracePeriod)
         self._comboRepaymentType.addItems(['원리금균등', '원금균등', '만기일시'])
+        if self._calculator.repayment_type == RepaymentType.EqualPrincipalInterest:  # 원리금균등
+            self._comboRepaymentType.setCurrentIndex(0)
+        elif self._calculator.repayment_type == RepaymentType.EqualPrincipal:  # 원금균등
+            self._comboRepaymentType.setCurrentIndex(1)
+        else:
+            self._comboRepaymentType.setCurrentIndex(2)
+        if self._calculator.round_floating == RoundType.Off:
+            self._radioFloatRoundOff.setChecked(True)
+        elif self._calculator.round_floating == RoundType.Up:
+            self._radioFloatRoundUp.setChecked(True)
+        else:
+            self._radioFloatRoundDown.setChecked(True)
+
         self._btnCalculate.clicked.connect(self.onClickBtnCalculate)
+        self._btnCalculate.setIcon(QIcon("./Resource/calculator.png"))
+        self._btnCalculate.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._btnSaveCsv.clicked.connect(self.onClickBtnSaveCsv)
+        self._btnSaveCsv.setIcon(QIcon("./Resource/excel.png"))
+        self._btnSaveCsv.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self._tableResult.verticalHeader().hide()
+        self._tableResult.setAlternatingRowColors(True)
+        styleSheet = "QTableWidget {alternate-background-color: #eeeeee; background-color: white;}"
+        self._tableResult.setStyleSheet(styleSheet)
+        self._tabWidget.setTabPosition(QTabWidget.South)
+        self._tabWidget.addTab(self._tableResult, '테이블')
 
     def onClickRadioPeriod(self):
-        # value =
         pass
 
     def onClickRadioGracePeriod(self):
         pass
 
-    def onClickBtnCalculate(self):
-        self._calculator.principal = int(self._editPrincipal.text())
-        self._calculator.interest_rate_percentage = self._spinInterest.value()
-        if self._radioPeriodYear.isChecked():
-            self._calculator.period_month = self._spinPeriod.value() * 12
-        else:
-            self._calculator.period_month = self._spinPeriod.value()
-        if self._radioGracePeriodYear.isChecked():
-            self._calculator.grace_period_month = self._spinGracePeriod.value() * 12
-        else:
-            self._calculator.grace_period_month = self._spinGracePeriod.value()
-        if self._comboRepaymentType.currentIndex() == 0:  # 원리금균등
-            self._calculator.repayment_type = RepaymentType.EqualPrincipalInterest
-        elif self._comboRepaymentType.currentIndex() == 1:  # 원금균등
-            self._calculator.repayment_type = RepaymentType.EqualPrincipal
-        else:
+    def onEditPrincipalTextChanged(self, text: str):
+        pos = self._editPrincipal.cursorPosition()
+        try:
+            if len(text) == 0:
+                value = 0
+            else:
+                value = int(text.replace(',', ''))
+            self._editPrincipal.setText('{:,}'.format(value))
+            self._last_valid_text = self._editPrincipal.text()
+        except Exception:
+            self._editPrincipal.setText(self._last_valid_text)
+        self._editPrincipal.setCursorPosition(pos)
+
+        self._lbl_readable.clear()
+        try:
+            value = int(self._editPrincipal.text().replace(',', ''))
+            self._lbl_readable.setText(money_string_to_readable_text(value) + '원')
+        except Exception:
             pass
-        self._df_calc_result = self._calculator.calculate()
+
+    def onClickBtnCalculate(self):
+        try:
+            self._calculator.principal = int(self._editPrincipal.text().replace(',', ''))
+            self._calculator.interest_rate_percentage = self._spinInterest.value()
+            if self._radioPeriodYear.isChecked():
+                self._calculator.period_month = self._spinPeriod.value() * 12
+            else:
+                self._calculator.period_month = self._spinPeriod.value()
+            if self._radioGracePeriodYear.isChecked():
+                self._calculator.grace_period_month = self._spinGracePeriod.value() * 12
+            else:
+                self._calculator.grace_period_month = self._spinGracePeriod.value()
+            if self._comboRepaymentType.currentIndex() == 0:  # 원리금균등
+                self._calculator.repayment_type = RepaymentType.EqualPrincipalInterest
+            elif self._comboRepaymentType.currentIndex() == 1:  # 원금균등
+                self._calculator.repayment_type = RepaymentType.EqualPrincipal
+            else:
+                self._calculator.repayment_type = RepaymentType.Bullet
+            if self._radioFloatRoundOff.isChecked():
+                self._calculator.round_floating = RoundType.Off
+            elif self._radioFloatRoundUp.isChecked():
+                self._calculator.round_floating = RoundType.Up
+            else:
+                self._calculator.round_floating = RoundType.Down
+
+            self._df_calc_result = self._calculator.calculate()
+        except Exception as e:
+            QMessageBox.warning(self, "Warning", str(e))
+            self._df_calc_result = None
         self.drawTable()
 
     def drawTable(self):
         self._tableResult.clear()
         self._tableResult.clearContents()
-        columns = list(self._df_calc_result.columns)
-        self._tableResult.setColumnCount(len(columns))
-        self._tableResult.setHorizontalHeaderLabels(columns)
-        self._tableResult.setRowCount(len(self._df_calc_result))
-        values = self._df_calc_result.values
-        for r in range(self._tableResult.rowCount()):
-            for c in range(self._tableResult.columnCount()):
-                item = QTableWidgetItem(str(values[r][c]))
-                self._tableResult.setItem(r, c, item)
+        if self._df_calc_result is not None:
+            columns = list(self._df_calc_result.columns)
+            self._tableResult.setColumnCount(len(columns))
+            self._tableResult.setHorizontalHeaderLabels(columns)
+            self._tableResult.setRowCount(len(self._df_calc_result))
+            values = self._df_calc_result.values
+            for r in range(self._tableResult.rowCount()):
+                for c in range(self._tableResult.columnCount()):
+                    if c == 0:
+                        item = QTableWidgetItem(str(values[r][c]))
+                        item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+                    else:
+                        item = QTableWidgetItem("{:,}".format(values[r][c]))
+                        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    item.setFlags(Qt.ItemFlags(int(item.flags()) ^ Qt.ItemIsEditable))
+                    self._tableResult.setItem(r, c, item)
+            hHeader = self._tableResult.horizontalHeader()
+            hHeader.setSectionResizeMode(0, QHeaderView.ResizeToContents)
 
-
-if __name__ == '__main__':
-    import sys
-    from PyQt5.QtWidgets import QApplication
-    from PyQt5.QtCore import QCoreApplication
-
-    QApplication.setStyle('fusion')
-    app = QCoreApplication.instance()
-    if app is None:
-        app = QApplication(sys.argv)
-    mainWnd = MortgageLoanCalculatorWindow()
-    mainWnd.show()
-    app.exec_()
+    def onClickBtnSaveCsv(self):
+        if self._df_calc_result is None:
+            QMessageBox.warning(self, "Warning", "계산 결과 없음")
+        else:
+            options = QFileDialog.Options()
+            path, _ = QFileDialog.getSaveFileName(self, "CSV 파일로 저장", "결과", "CSV File (*.csv)", options=options)
+            if path:
+                if platform.system() == 'Windows':
+                    self._df_calc_result.to_csv(path, index=False, encoding='cp949')
+                else:
+                    self._df_calc_result.to_csv(path, index=False, encoding='utf-8')
