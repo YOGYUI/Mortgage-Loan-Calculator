@@ -42,3 +42,7 @@ TODO
 - 금리 변동 적용
 - 시각화
 - 웹서버 구현
+
+관련페이지
+---
+[Python - 대출 이자 계산기 앱 개발](https://yogyui.tistory.com/entry/Python-%EB%8C%80%EC%B6%9C-%EC%9D%B4%EC%9E%90-%EA%B3%84%EC%82%B0%EA%B8%B0-%EC%95%B1-%EA%B0%9C%EB%B0%9C) <br>
