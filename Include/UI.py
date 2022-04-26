@@ -43,7 +43,8 @@ class MortgageLoanCalculatorWindow(QMainWindow):
         self._btnCalculate = QPushButton('계산')
         self._btnSaveCsv = QPushButton('저장 (CSV)')
         self._tabWidget = QTabWidget()
-        self._tableResult = QTableWidget()
+        self._tableResult1 = QTableWidget()
+        self._tableResult2 = QTableWidget()
         self.initControl()
         self.initLayout()
         self.setWindowTitle('주택담보대출 계산기')
@@ -192,12 +193,17 @@ class MortgageLoanCalculatorWindow(QMainWindow):
         self._btnSaveCsv.clicked.connect(self.onClickBtnSaveCsv)
         self._btnSaveCsv.setIcon(QIcon("./Resource/excel.png"))
         self._btnSaveCsv.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        self._tableResult.verticalHeader().hide()
-        self._tableResult.setAlternatingRowColors(True)
-        styleSheet = "QTableWidget {alternate-background-color: #eeeeee; background-color: white;}"
-        self._tableResult.setStyleSheet(styleSheet)
         self._tabWidget.setTabPosition(QTabWidget.South)
-        self._tabWidget.addTab(self._tableResult, '테이블')
+        self._tableResult1.verticalHeader().hide()
+        self._tableResult1.setAlternatingRowColors(True)
+        styleSheet = "QTableWidget {alternate-background-color: #eeeeee; background-color: white;}"
+        self._tableResult1.setStyleSheet(styleSheet)
+        self._tabWidget.addTab(self._tableResult1, '테이블 1')
+        self._tableResult2.verticalHeader().hide()
+        self._tableResult2.setAlternatingRowColors(True)
+        styleSheet = "QTableWidget {alternate-background-color: #eeeeee; background-color: white;}"
+        self._tableResult2.setStyleSheet(styleSheet)
+        self._tabWidget.addTab(self._tableResult2, '테이블 2')
 
     def onClickRadioPeriod(self):
         pass
@@ -254,19 +260,20 @@ class MortgageLoanCalculatorWindow(QMainWindow):
         except Exception as e:
             QMessageBox.warning(self, "Warning", str(e))
             self._df_calc_result = None
-        self.drawTable()
+        self.drawTable1()
+        self.drawTable2()
 
-    def drawTable(self):
-        self._tableResult.clear()
-        self._tableResult.clearContents()
+    def drawTable1(self):
+        self._tableResult1.clear()
+        self._tableResult1.clearContents()
         if self._df_calc_result is not None:
             columns = list(self._df_calc_result.columns)
-            self._tableResult.setColumnCount(len(columns))
-            self._tableResult.setHorizontalHeaderLabels(columns)
-            self._tableResult.setRowCount(len(self._df_calc_result))
+            self._tableResult1.setColumnCount(len(columns))
+            self._tableResult1.setHorizontalHeaderLabels(columns)
+            self._tableResult1.setRowCount(len(self._df_calc_result))
             values = self._df_calc_result.values
-            for r in range(self._tableResult.rowCount()):
-                for c in range(self._tableResult.columnCount()):
+            for r in range(self._tableResult1.rowCount()):
+                for c in range(self._tableResult1.columnCount()):
                     if c == 0:
                         item = QTableWidgetItem(str(values[r][c]))
                         item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
@@ -274,9 +281,57 @@ class MortgageLoanCalculatorWindow(QMainWindow):
                         item = QTableWidgetItem("{:,}".format(values[r][c]))
                         item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
                     item.setFlags(Qt.ItemFlags(int(item.flags()) ^ Qt.ItemIsEditable))
-                    self._tableResult.setItem(r, c, item)
-            hHeader = self._tableResult.horizontalHeader()
+                    self._tableResult1.setItem(r, c, item)
+            hHeader = self._tableResult1.horizontalHeader()
             hHeader.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+
+    def drawTable2(self):
+        self._tableResult2.clear()
+        self._tableResult2.clearContents()
+        if self._df_calc_result is not None:
+            # 12행 단위로 끊어서 sub-sum
+            lst_year = []
+            lst_interest_year = []  # 납입이자 계
+            lst_pricipal_year = []  # 납입원금 계
+            lst_redisual = []  # 잔금
+
+            year = 1
+            for i in range(len(self._df_calc_result)):
+                if (i + 1) % 12 == 0:
+                    lst_year.append(year)
+                    year += 1
+                    lst_interest_year.append(self._df_calc_result.iloc[i]['납입이자계'])
+                    lst_pricipal_year.append(self._df_calc_result.iloc[i]['납입원금계'])
+                    lst_redisual.append(self._df_calc_result.iloc[i]['대출잔금'])
+
+            # 대출 개월 수가 년단위로 딱 떨어지지 않을 경우 행 한개 추가
+            if len(self._df_calc_result) % 12 != 0:
+                lst_year.append(year)
+                lst_interest_year.append(self._df_calc_result.iloc[-1]['납입이자계'])
+                lst_pricipal_year.append(self._df_calc_result.iloc[-1]['납입원금계'])
+                lst_redisual.append(self._df_calc_result.iloc[-1]['대출잔금'])
+
+            df_result = pd.DataFrame((lst_year, lst_interest_year, lst_pricipal_year, lst_redisual)).T
+            df_result.columns = ['납입연차', '납입이자계', '납입원금계', '잔금']
+
+            columns = list(df_result.columns)
+            self._tableResult2.setColumnCount(len(columns))
+            self._tableResult2.setHorizontalHeaderLabels(columns)
+            self._tableResult2.setRowCount(len(df_result))
+            values = df_result.values
+            for r in range(self._tableResult2.rowCount()):
+                for c in range(self._tableResult2.columnCount()):
+                    if c == 0:
+                        item = QTableWidgetItem(str(values[r][c]))
+                        item.setTextAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+                    else:
+                        item = QTableWidgetItem("{:,}".format(values[r][c]))
+                        item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                    item.setFlags(Qt.ItemFlags(int(item.flags()) ^ Qt.ItemIsEditable))
+                    self._tableResult2.setItem(r, c, item)
+            hHeader = self._tableResult2.horizontalHeader()
+            hHeader.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+
 
     def onClickBtnSaveCsv(self):
         if self._df_calc_result is None:
